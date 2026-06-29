@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>聖經歷史地圖 · 新約耶穌時代</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    /* ── Design Tokens ───────────────────────────────────────── */
+    :root {
+      --parchment:   #F5EDD8;
+      --ink:         #2C1A0E;
+      --gold:        #C9922A;
+      --gold-light:  #E8C06A;
+      --crimson:     #8B2020;
+      --olive:       #5A6B38;
+      --sky:         #4A90B8;
+      --panel-bg:    rgba(245, 237, 216, 0.96);
+      --shadow:      0 4px 24px rgba(44,26,14,0.18);
+      --radius:      10px;
+      --font-title:  'Georgia', 'Noto Serif TC', serif;
+      --font-body:   'Georgia', 'Noto Sans TC', serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--ink);
+      color: var(--ink);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Map ─────────────────────────────────────────────────── */
+    #map {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      filter: sepia(18%) saturate(85%);
+    }
+
+    /* ── Header Bar ──────────────────────────────────────────── */
+    #header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 18px;
+      background: var(--panel-bg);
+      border-bottom: 2px solid var(--gold);
+      backdrop-filter: blur(6px);
+      box-shadow: var(--shadow);
+    }
+
+    #header-title {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    #header-title .main {
+      font-family: var(--font-title);
+      font-size: 1.15rem;
+      font-weight: bold;
+      color: var(--ink);
+      letter-spacing: 0.03em;
+    }
+
+    #header-title .sub {
+      font-size: 0.72rem;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── Filter Dropdown ─────────────────────────────────────── */
+    #filter-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #filter-wrap label {
+      font-size: 0.78rem;
+      color: var(--ink);
+      opacity: 0.75;
+      white-space: nowrap;
+    }
+
+    #category-filter {
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--parchment) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23C9922A' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+      border: 1.5px solid var(--gold);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 0.82rem;
+      padding: 6px 32px 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    #category-filter:focus {
+      outline: none;
+      border-color: var(--crimson);
+      box-shadow: 0 0 0 3px rgba(201,146,42,0.2);
+    }
+
+    /* ── Count Badge ─────────────────────────────────────────── */
+    #count-badge {
+      font-size: 0.72rem;
+      color: var(--gold);
+      white-space: nowrap;
+      opacity: 0.85;
+    }
+
+    /* ── Loading Screen ──────────────────────────────────────── */
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: var(--parchment);
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-family: var(--font-title);
+      font-size: 1.5rem;
+      color: var(--ink);
+      transition: opacity 0.5s ease;
+    }
+
+    /* ── Custom Marker Icons ─────────────────────────────────── */
+    .marker-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      border: 2px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .marker-icon:hover {
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    }
+
+    .marker-icon .inner {
+      transform: rotate(45deg);
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    /* ── Leaflet Popup Overrides ─────────────────────────────── */
+    .leaflet-popup-content-wrapper {
+      background: var(--panel-bg) !important;
+      border: 1.5px solid var(--gold) !important;
+      border-radius: var(--radius) !important;
+      box-shadow: var(--shadow) !important;
+      padding: 0 !important;
+      max-width: 300px;
+    }
+
+    .leaflet-popup-content {
+      margin: 0 !important;
+      width: auto !important;
+    }
+
+    .leaflet-popup-tip {
+      background: var(--gold) !important;
+    }
+
+    .popup-inner {
+      padding: 16px 18px 14px;
+    }
+
+    .popup-category {
+      display: inline-block;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+
+    .popup-name-zh {
+      font-family: var(--font-title);
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .popup-name-en {
+      font-size: 0.72rem;
+      color: var(--gold);
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+    }
+
+    .popup-divider {
+      border: none;
+      border-top: 1px solid var(--gold-light);
+      margin: 10px 0;
+      opacity: 0.6;
+    }
+
+    .popup-verse {
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: var(--ink);
+      font-style: italic;
+      opacity: 0.88;
+    }
+
+    .popup-ref {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--crimson);
+      font-style: normal;
+      text-align: right;
+      margin-top: 6px;
+      font-weight: bold;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Legend ──────────────────────────────────────────────── */
+    #legend {
+      position: absolute;
+      bottom: 30px;
+      left: 14px;
+      z-index: 1000;
+      background: var(--panel-bg);
+      border: 1.5px solid var(--gold);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      backdrop-filter: blur(4px);
+      box-shadow: var(--shadow);
+      font-size: 0.72rem;
+    }
+
+    #legend .legend-title {
+      font-weight: bold;
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+      font-size: 0.68rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 5px;
+      color: var(--ink);
+    }
+
+    .legend-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.6);
+      flex-shrink: 0;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 500px) {
+      #header { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+      #header-title .main { font-size: 1rem; }
+      #filter-wrap label { display: none; }
+      #legend { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading Overlay -->
+  <div id="loading">正在從 Via-Biblica 載入聖經地理數據...</div>
+
+  <!-- Header -->
+  <div id="header">
+    <div id="header-title">
+      <span class="main">✦ Via-Biblica 聖經歷史地圖</span>
+      <span class="sub">新約 · 耶穌時代</span>
+    </div>
+    <div id="filter-wrap">
+      <label for="category-filter">篩選地點：</label>
+      <select id="category-filter">
+        <option value="all">全部顯示</option>
+        <option value="出生 / 童年">出生 / 童年</option>
+        <option value="神蹟發生地">神蹟發生地</option>
+        <option value="受難 / 復活">受難 / 復活</option>
+      </select>
+      <span id="count-badge"></span>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Legend -->
+  <div id="legend">
+    <div class="legend-title">地點類型</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#8B2020"></div>出生 / 童年</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4A90B8"></div>神蹟發生地</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#5A6B38"></div>受難 / 復活</div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // ── Google Sheets 資料來源連線 ──────────────────────────────
+    // 經已將你的 Google Sheet ID 自動嵌入
+    const SHEET_URL = 'https://docs.google.com/spreadsheets/d/15v5oldCx3K5W9eDxBIYvX5JRygm8icRKCyB5zHgVb6s/gviz/tq?tqx=out:json';
+
+    // ── 顏色對應 ─────────────────────────────────────────────
+    const categoryColors = {
+      "出生 / 童年": "#8B2020",
+      "神蹟發生地":  "#4A90B8",
+      "受難 / 復活": "#5A6B38"
+    };
+
+    // ── 初始化地圖 ────────────────────────────────────────────
+    const map = L.map('map', {
+      center: [31.9, 35.3],
+      zoom: 8,
+      zoomControl: false
+    });
+
+    // OpenStreetMap 圖層（免費開源）
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 18
+    }).addTo(map);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    let biblePlaces = [];
+    const markersGroup = {};
+
+    // ── 從 Google Sheets 非同步抓取與解析數據 ─────────────────────
+    async function loadPlaces() {
+      try {
+        const res = await fetch(SHEET_URL);
+        const text = await res.text();
+        
+        // 使用正則表達式安全抓取 JSON，避免 Google 回傳字串長度改變導致報錯
+        const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*?)\);/);
+        if (!match) throw new Error("無法解析 Google Sheet 數據格式");
+        
+        const json = JSON.parse(match[1]);
+        const rows = json.table.rows;
+
+        // 將 Google Sheets 橫列數據對應回網頁物件屬性
+        return rows.map(row => ({
+          id:       row.c[0]?.v,
+          nameZh:   row.c[1]?.v,
+          nameEn:   row.c[2]?.v,
+          lat:      parseFloat(row.c[3]?.v),
+          lng:      parseFloat(row.c[4]?.v),
+          category: row.c[5]?.v,
+          emoji:    row.c[6]?.v,
+          verse:    row.c[7]?.v,
+          ref:      row.c[8]?.v,
+        }));
+      } catch (error) {
+        console.error("資料載入失敗:", error);
+        alert("無法從 Google Sheet 載入地圖數據，請檢查發布設定或網絡連線。");
+        return [];
+      }
+    }
+
+    // ── 主程式初始化 ──────────────────────────────────────────
+    loadPlaces().then(places => {
+      biblePlaces = places;
+
+      // 移除 Loading 畫面
+      const loadingScreen = document.getElementById('loading');
+      if (loadingScreen) {
+        loadingScreen.style.opacity = '0';
+        setTimeout(() => loadingScreen.remove(), 500);
+      }
+
+      // 生成畫面的地圖標記
+      biblePlaces.forEach(place => {
+        if (isNaN(place.lat) || isNaN(place.lng)) return; // 跳過無效座標
+
+        const color = categoryColors[place.category] || "#888";
+        const iconHtml = `
+          <div class="marker-icon" style="background:${color};">
+            <span class="inner">${place.emoji || '📍'}</span>
+          </div>`;
+
+        const icon = L.divIcon({
+          html: iconHtml,
+          className: '',
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -34]
+        });
+
+        const marker = L.marker([place.lat, place.lng], { icon });
+
+        const popupContent = `
+          <div class="popup-inner">
+            <div class="popup-category" style="background:${color};">${place.category}</div>
+            <div class="popup-name-zh">${place.nameZh}</div>
+            <div class="popup-name-en">${place.nameEn}</div>
+            <hr class="popup-divider">
+            <div class="popup-verse">
+              ${place.verse}
+              <span class="popup-ref">— ${place.ref}</span>
+            </div>
+          </div>`;
+
+        marker.bindPopup(popupContent, { maxWidth: 300 });
+        marker.addTo(map);
+
+        markersGroup[place.id] = marker;
+      });
+
+      // 綁定篩選器事件
+      const filterSelect = document.getElementById('category-filter');
+      const countBadge   = document.getElementById('count-badge');
+
+      function updateFilter() {
+        const selected = filterSelect.value;
+        let visible = 0;
+
+        biblePlaces.forEach(place => {
+          const marker = markersGroup[place.id];
+          if (!marker) return;
+          
+          const show = selected === 'all' || place.category === selected;
+          if (show) {
+            if (!map.hasLayer(marker)) marker.addTo(map);
+            visible++;
+          } else {
+            if (map.hasLayer(marker)) map.removeLayer(marker);
+          }
+        });
+
+        countBadge.textContent = `${visible} 個地點`;
+      }
+
+      filterSelect.addEventListener('change', updateFilter);
+      updateFilter(); // 初始化執行第一次篩選計算
+    });
+  </script>
+</body>
+</html>
