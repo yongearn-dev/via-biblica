@@ -301,9 +301,7 @@
       <label for="category-filter">篩選地點：</label>
       <select id="category-filter">
         <option value="all">全部顯示</option>
-        <option value="出生 / 童年">出生 / 童年</option>
-        <option value="神蹟發生地">神蹟發生地</option>
-        <option value="受難 / 復活">受難 / 復活</option>
+        <!-- 類別選項由 JavaScript 根據 Google Sheets 數據動態生成 -->
       </select>
       <span id="count-badge"></span>
     </div>
@@ -312,23 +310,20 @@
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Legend -->
+  <!-- Legend（由 JavaScript 動態生成，根據 Google Sheets 的 category 欄位）-->
   <div id="legend">
     <div class="legend-title">地點類型</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#8B2020"></div>出生 / 童年</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#4A90B8"></div>神蹟發生地</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#5A6B38"></div>受難 / 復活</div>
   </div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // ── Google Sheets 資料來源連線 ──────────────────────────────
-    // 經已將你的 Google Sheet ID 自動嵌入
-    const SHEET_URL = 'https://docs.google.com/spreadsheets/d/15v5oldCx3K5W9eDxBIYvX5JRygm8icRKCyB5zHgVb6s/gviz/tq?tqx=out:json';
+    // ── Google Sheets CSV 資料來源（發布到網路 → CSV 格式，無 CORS 問題）──
+    const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHDfdnwNZv1giUtwww1W7Pil4VVMoxdDOC5CuKSNHpgFHYIB0IZvoG1QUjaAisVNfkGob48OVy3Qod/pub?output=csv';
 
-    // ── 顏色對應 ─────────────────────────────────────────────
+    // ── 顏色對應（category 欄位內容 → 顏色）────────────────────
+    // 若你日後在 Sheets 加新類別，在這裡加一行對應顏色即可
     const categoryColors = {
       "出生 / 童年": "#8B2020",
       "神蹟發生地":  "#4A90B8",
@@ -353,34 +348,67 @@
     let biblePlaces = [];
     const markersGroup = {};
 
-    // ── 從 Google Sheets 非同步抓取與解析數據 ─────────────────────
+    // ── CSV 解析器：正確處理欄位內有逗號或換行的情況 ──────────────
+    // （例如經文裡有逗號，用雙引號包住的欄位）
+    function parseCSV(text) {
+      const rows = [];
+      let row = [], field = '', inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const next = text[i + 1];
+
+        if (inQuotes) {
+          if (ch === '"' && next === '"') { field += '"'; i++; }        // 跳脫雙引號
+          else if (ch === '"') { inQuotes = false; }                    // 引號結束
+          else { field += ch; }
+        } else {
+          if (ch === '"') { inQuotes = true; }                          // 引號開始
+          else if (ch === ',') { row.push(field.trim()); field = ''; }  // 下一欄
+          else if (ch === '\n') {                                        // 換行 = 下一列
+            row.push(field.trim());
+            if (row.some(c => c !== '')) rows.push(row);               // 跳過空列
+            row = []; field = '';
+          } else if (ch === '\r') { /* 忽略 Windows 換行符 \r */ }
+          else { field += ch; }
+        }
+      }
+      // 最後一列（若無結尾換行）
+      if (field || row.length) { row.push(field.trim()); rows.push(row); }
+      return rows;
+    }
+
+    // ── 從 Google Sheets CSV 抓取並解析數據 ──────────────────────
+    // Sheets 欄位順序：A=nameZh, B=nameEn, C=lat, D=lng,
+    //                  E=category, F=emoji, G=verse, H=ref
+    // （第一行係表頭，會自動跳過）
     async function loadPlaces() {
       try {
-        const res = await fetch(SHEET_URL);
+        const res = await fetch(SHEET_CSV_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
-        
-        // 使用正則表達式安全抓取 JSON，避免 Google 回傳字串長度改變導致報錯
-        const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*?)\);/);
-        if (!match) throw new Error("無法解析 Google Sheet 數據格式");
-        
-        const json = JSON.parse(match[1]);
-        const rows = json.table.rows;
 
-        // 將 Google Sheets 橫列數據對應回網頁物件屬性
-        return rows.map(row => ({
-          id:       row.c[0]?.v,
-          nameZh:   row.c[1]?.v,
-          nameEn:   row.c[2]?.v,
-          lat:      parseFloat(row.c[3]?.v),
-          lng:      parseFloat(row.c[4]?.v),
-          category: row.c[5]?.v,
-          emoji:    row.c[6]?.v,
-          verse:    row.c[7]?.v,
-          ref:      row.c[8]?.v,
-        }));
+        const rows = parseCSV(text);
+        const dataRows = rows.slice(1); // 跳過第一行表頭
+
+        return dataRows
+          .filter(cols => cols.length >= 4 && cols[2] && cols[3]) // 確保有座標
+          .map((cols, i) => ({
+            id:       i + 1,
+            nameZh:   cols[0] || '',
+            nameEn:   cols[1] || '',
+            lat:      parseFloat(cols[2]),
+            lng:      parseFloat(cols[3]),
+            category: cols[4] || '其他',
+            emoji:    cols[5] || '📍',
+            verse:    cols[6] || '',
+            ref:      cols[7] || '',
+          }))
+          .filter(p => !isNaN(p.lat) && !isNaN(p.lng)); // 過濾無效座標
+
       } catch (error) {
         console.error("資料載入失敗:", error);
-        alert("無法從 Google Sheet 載入地圖數據，請檢查發布設定或網絡連線。");
+        alert("無法從 Google Sheet 載入地圖數據，請檢查發布設定或網絡連線。\n\n錯誤：" + error.message);
         return [];
       }
     }
@@ -396,10 +424,30 @@
         setTimeout(() => loadingScreen.remove(), 500);
       }
 
-      // 生成畫面的地圖標記
-      biblePlaces.forEach(place => {
-        if (isNaN(place.lat) || isNaN(place.lng)) return; // 跳過無效座標
+      // ── 動態建立篩選下拉選單（根據 Sheets 實際有的 category）────
+      // 日後在 Sheets 加新類別，下拉選單會自動更新，不用改 HTML
+      const filterSelect = document.getElementById('category-filter');
+      const categories = [...new Set(biblePlaces.map(p => p.category))].sort();
+      categories.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        filterSelect.appendChild(opt);
+      });
 
+      // ── 動態建立圖例（Legend）────────────────────────────────
+      const legendEl = document.getElementById('legend');
+      legendEl.innerHTML = '<div class="legend-title">地點類型</div>';
+      categories.forEach(cat => {
+        const color = categoryColors[cat] || '#888';
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${cat}`;
+        legendEl.appendChild(item);
+      });
+
+      // ── 生成地圖標記 ─────────────────────────────────────────
+      biblePlaces.forEach(place => {
         const color = categoryColors[place.category] || "#888";
         const iconHtml = `
           <div class="marker-icon" style="background:${color};">
@@ -416,27 +464,29 @@
 
         const marker = L.marker([place.lat, place.lng], { icon });
 
+        const verseHtml = place.verse
+          ? `<hr class="popup-divider">
+             <div class="popup-verse">
+               ${place.verse}
+               <span class="popup-ref">— ${place.ref}</span>
+             </div>`
+          : '';
+
         const popupContent = `
           <div class="popup-inner">
             <div class="popup-category" style="background:${color};">${place.category}</div>
             <div class="popup-name-zh">${place.nameZh}</div>
             <div class="popup-name-en">${place.nameEn}</div>
-            <hr class="popup-divider">
-            <div class="popup-verse">
-              ${place.verse}
-              <span class="popup-ref">— ${place.ref}</span>
-            </div>
+            ${verseHtml}
           </div>`;
 
         marker.bindPopup(popupContent, { maxWidth: 300 });
         marker.addTo(map);
-
         markersGroup[place.id] = marker;
       });
 
-      // 綁定篩選器事件
-      const filterSelect = document.getElementById('category-filter');
-      const countBadge   = document.getElementById('count-badge');
+      // ── 篩選邏輯 ─────────────────────────────────────────────
+      const countBadge = document.getElementById('count-badge');
 
       function updateFilter() {
         const selected = filterSelect.value;
@@ -445,7 +495,6 @@
         biblePlaces.forEach(place => {
           const marker = markersGroup[place.id];
           if (!marker) return;
-          
           const show = selected === 'all' || place.category === selected;
           if (show) {
             if (!map.hasLayer(marker)) marker.addTo(map);
@@ -459,7 +508,7 @@
       }
 
       filterSelect.addEventListener('change', updateFilter);
-      updateFilter(); // 初始化執行第一次篩選計算
+      updateFilter();
     });
   </script>
 </body>
