@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>聖經歷史地圖 · 新約耶穌時代</title>
+  <title>聖經歷史地圖 · Via-Biblica</title>
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
   <style>
-    /* ── Design Tokens ───────────────────────────────────────── */
     :root {
       --parchment:   #F5EDD8;
       --ink:         #2C1A0E;
@@ -35,7 +34,6 @@
       overflow: hidden;
     }
 
-    /* ── Map ─────────────────────────────────────────────────── */
     #map {
       position: absolute;
       inset: 0;
@@ -44,7 +42,6 @@
       filter: sepia(18%) saturate(85%);
     }
 
-    /* ── Header Bar ──────────────────────────────────────────── */
     #header {
       position: absolute;
       top: 0; left: 0; right: 0;
@@ -52,6 +49,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
       padding: 10px 18px;
       background: var(--panel-bg);
       border-bottom: 2px solid var(--gold);
@@ -80,21 +79,27 @@
       text-transform: uppercase;
     }
 
-    /* ── Filter Dropdown ─────────────────────────────────────── */
-    #filter-wrap {
+    #filters-wrap {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
-    #filter-wrap label {
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-group label {
       font-size: 0.78rem;
       color: var(--ink);
       opacity: 0.75;
       white-space: nowrap;
     }
 
-    #category-filter {
+    .filter-select {
       appearance: none;
       -webkit-appearance: none;
       background: var(--parchment) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23C9922A' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
@@ -106,15 +111,20 @@
       border-radius: 6px;
       cursor: pointer;
       transition: border-color 0.2s, box-shadow 0.2s;
+      max-width: 180px;
     }
 
-    #category-filter:focus {
+    #period-filter {
+      border-color: var(--crimson);
+      font-weight: bold;
+    }
+
+    .filter-select:focus {
       outline: none;
       border-color: var(--crimson);
       box-shadow: 0 0 0 3px rgba(201,146,42,0.2);
     }
 
-    /* ── Count Badge ─────────────────────────────────────────── */
     #count-badge {
       font-size: 0.72rem;
       color: var(--gold);
@@ -122,7 +132,6 @@
       opacity: 0.85;
     }
 
-    /* ── Loading Screen ──────────────────────────────────────── */
     #loading {
       position: absolute;
       inset: 0;
@@ -136,9 +145,10 @@
       font-size: 1.5rem;
       color: var(--ink);
       transition: opacity 0.5s ease;
+      text-align: center;
+      padding: 20px;
     }
 
-    /* ── Custom Marker Icons ─────────────────────────────────── */
     .marker-icon {
       display: flex;
       align-items: center;
@@ -162,83 +172,120 @@
       line-height: 1;
     }
 
-    /* ── Leaflet Popup Overrides ─────────────────────────────── */
     .leaflet-popup-content-wrapper {
       background: var(--panel-bg) !important;
       border: 1.5px solid var(--gold) !important;
       border-radius: var(--radius) !important;
       box-shadow: var(--shadow) !important;
       padding: 0 !important;
-      max-width: 300px;
+      width: 280px !important;
+      max-width: 88vw !important;
     }
 
     .leaflet-popup-content {
       margin: 0 !important;
-      width: auto !important;
+      width: 100% !important;
+      max-height: 55vh;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--gold-light) transparent;
+    }
+
+    .leaflet-popup-content::-webkit-scrollbar { width: 4px; }
+    .leaflet-popup-content::-webkit-scrollbar-track { background: transparent; }
+    .leaflet-popup-content::-webkit-scrollbar-thumb {
+      background: var(--gold-light);
+      border-radius: 4px;
     }
 
     .leaflet-popup-tip {
       background: var(--gold) !important;
     }
 
-    .popup-inner {
-      padding: 16px 18px 14px;
+    .leaflet-popup-close-button {
+      font-size: 20px !important;
+      width: 28px !important;
+      height: 28px !important;
+      line-height: 26px !important;
+      color: var(--gold) !important;
+      right: 6px !important;
+      top: 6px !important;
     }
 
-    .popup-category {
+    .popup-inner {
+      padding: 14px 16px 12px;
+    }
+
+    .popup-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    .popup-category,
+    .popup-period {
       display: inline-block;
       font-size: 0.65rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
+      letter-spacing: 0.04em;
       color: white;
-      padding: 2px 8px;
+      padding: 3px 9px;
       border-radius: 20px;
-      margin-bottom: 8px;
       font-weight: bold;
+      white-space: normal;
+      word-break: keep-all;
+    }
+
+    .popup-period {
+      background: var(--ink) !important;
+      opacity: 0.75;
     }
 
     .popup-name-zh {
       font-family: var(--font-title);
-      font-size: 1.2rem;
+      font-size: 1.05rem;
       font-weight: bold;
       color: var(--ink);
-      line-height: 1.2;
+      line-height: 1.3;
+      word-break: keep-all;
     }
 
     .popup-name-en {
       font-size: 0.72rem;
       color: var(--gold);
-      letter-spacing: 0.05em;
-      margin-bottom: 10px;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
     }
 
     .popup-divider {
       border: none;
       border-top: 1px solid var(--gold-light);
-      margin: 10px 0;
+      margin: 8px 0;
       opacity: 0.6;
     }
 
     .popup-verse {
       font-size: 0.82rem;
-      line-height: 1.65;
+      line-height: 1.7;
       color: var(--ink);
       font-style: italic;
-      opacity: 0.88;
+      opacity: 0.9;
+      word-break: normal;
+      overflow-wrap: break-word;
+      white-space: normal;
     }
 
     .popup-ref {
       display: block;
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       color: var(--crimson);
       font-style: normal;
       text-align: right;
-      margin-top: 6px;
+      margin-top: 8px;
       font-weight: bold;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
     }
 
-    /* ── Legend ──────────────────────────────────────────────── */
     #legend {
       position: absolute;
       bottom: 30px;
@@ -251,6 +298,7 @@
       backdrop-filter: blur(4px);
       box-shadow: var(--shadow);
       font-size: 0.72rem;
+      max-width: 180px;
     }
 
     #legend .legend-title {
@@ -277,11 +325,11 @@
       flex-shrink: 0;
     }
 
-    /* ── Responsive ──────────────────────────────────────────── */
-    @media (max-width: 500px) {
+    @media (max-width: 640px) {
       #header { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
       #header-title .main { font-size: 1rem; }
-      #filter-wrap label { display: none; }
+      .filter-group label { display: none; }
+      .filter-select { max-width: 130px; font-size: 0.76rem; }
       #legend { display: none; }
     }
   </style>
@@ -295,14 +343,21 @@
   <div id="header">
     <div id="header-title">
       <span class="main">✦ Via-Biblica 聖經歷史地圖</span>
-      <span class="sub">新約 · 耶穌時代</span>
+      <span class="sub" id="header-sub">載入中...</span>
     </div>
-    <div id="filter-wrap">
-      <label for="category-filter">篩選地點：</label>
-      <select id="category-filter">
-        <option value="all">全部顯示</option>
-        <!-- 類別選項由 JavaScript 根據 Google Sheets 數據動態生成 -->
-      </select>
+    <div id="filters-wrap">
+      <div class="filter-group">
+        <label for="period-filter">歷史時期：</label>
+        <select id="period-filter" class="filter-select">
+          <option value="all">全部時期</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="category-filter">地點類型：</label>
+        <select id="category-filter" class="filter-select">
+          <option value="all">全部類型</option>
+        </select>
+      </div>
       <span id="count-badge"></span>
     </div>
   </div>
@@ -310,7 +365,7 @@
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Legend（由 JavaScript 動態生成，根據 Google Sheets 的 category 欄位）-->
+  <!-- Legend -->
   <div id="legend">
     <div class="legend-title">地點類型</div>
   </div>
@@ -319,25 +374,41 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // ── Google Sheets CSV 資料來源（發布到網路 → CSV 格式，無 CORS 問題）──
+    // ── Google Sheets CSV 資料來源 ──────────────────────────────
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHDfdnwNZv1giUtwww1W7Pil4VVMoxdDOC5CuKSNHpgFHYIB0IZvoG1QUjaAisVNfkGob48OVy3Qod/pub?output=csv';
 
-    // ── 顏色對應（category 欄位內容 → 顏色）────────────────────
-    // 若你日後在 Sheets 加新類別，在這裡加一行對應顏色即可
-    const categoryColors = {
-      "出生 / 童年": "#8B2020",
-      "神蹟發生地":  "#4A90B8",
-      "受難 / 復活": "#5A6B38"
-    };
+    // 預設時期（開啟時優先顯示）
+    const DEFAULT_PERIOD = '新約耶穌時代';
 
-    // ── 初始化地圖 ────────────────────────────────────────────
+    // 顏色對應（category → 顏色）
+    const categoryColors = {
+      "耶穌出生":       "#8B2020",
+      "耶穌童年故鄉":   "#C9922A",
+      "耶穌神蹟發生地": "#4A90B8",
+      "耶穌傳道中心":   "#4A90B8",
+      "受難與復活之地": "#5A6B38",
+      "律法頒布地":     "#6B4C9A",
+      "征服迦南":       "#A35D2A",
+      "大衛受膏作王":   "#B8860B",
+      "統一首都":       "#B8860B"
+    };
+    const fallbackPalette = ["#8B2020","#4A90B8","#5A6B38","#C9922A","#6B4C9A","#A35D2A","#2A6B6B"];
+    const assignedFallback = {};
+    function getCategoryColor(cat) {
+      if (categoryColors[cat]) return categoryColors[cat];
+      if (!assignedFallback[cat]) {
+        const idx = Object.keys(assignedFallback).length % fallbackPalette.length;
+        assignedFallback[cat] = fallbackPalette[idx];
+      }
+      return assignedFallback[cat];
+    }
+
     const map = L.map('map', {
       center: [31.9, 35.3],
       zoom: 8,
       zoomControl: false
     });
 
-    // OpenStreetMap 圖層（免費開源）
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 18
@@ -348,64 +419,56 @@
     let biblePlaces = [];
     const markersGroup = {};
 
-    // ── CSV 解析器：正確處理欄位內有逗號或換行的情況 ──────────────
-    // （例如經文裡有逗號，用雙引號包住的欄位）
     function parseCSV(text) {
       const rows = [];
       let row = [], field = '', inQuotes = false;
-
       for (let i = 0; i < text.length; i++) {
         const ch = text[i];
         const next = text[i + 1];
-
         if (inQuotes) {
-          if (ch === '"' && next === '"') { field += '"'; i++; }        // 跳脫雙引號
-          else if (ch === '"') { inQuotes = false; }                    // 引號結束
+          if (ch === '"' && next === '"') { field += '"'; i++; }
+          else if (ch === '"') { inQuotes = false; }
           else { field += ch; }
         } else {
-          if (ch === '"') { inQuotes = true; }                          // 引號開始
-          else if (ch === ',') { row.push(field.trim()); field = ''; }  // 下一欄
-          else if (ch === '\n') {                                        // 換行 = 下一列
+          if (ch === '"') { inQuotes = true; }
+          else if (ch === ',') { row.push(field.trim()); field = ''; }
+          else if (ch === '\n') {
             row.push(field.trim());
-            if (row.some(c => c !== '')) rows.push(row);               // 跳過空列
+            if (row.some(c => c !== '')) rows.push(row);
             row = []; field = '';
-          } else if (ch === '\r') { /* 忽略 Windows 換行符 \r */ }
+          } else if (ch === '\r') { /* ignore */ }
           else { field += ch; }
         }
       }
-      // 最後一列（若無結尾換行）
       if (field || row.length) { row.push(field.trim()); rows.push(row); }
       return rows;
     }
 
-    // ── 從 Google Sheets CSV 抓取並解析數據 ──────────────────────
-    // Sheets 欄位順序：A=nameZh, B=nameEn, C=lat, D=lng,
-    //                  E=category, F=emoji, G=verse, H=ref
-    // （第一行係表頭，會自動跳過）
+    // Sheets 欄位順序：A=id, B=nameZh, C=nameEn, D=lat, E=lng,
+    //                  F=category, G=emoji, H=verse, I=ref, J=period
     async function loadPlaces() {
       try {
         const res = await fetch(SHEET_CSV_URL);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
-
         const rows = parseCSV(text);
-        const dataRows = rows.slice(1); // 跳過第一行表頭
+        const dataRows = rows.slice(1);
 
         return dataRows
-          .filter(cols => cols.length >= 4 && cols[2] && cols[3]) // 確保有座標
+          .filter(cols => cols.length >= 5 && cols[3] && cols[4])
           .map((cols, i) => ({
-            id:       i + 1,
-            nameZh:   cols[0] || '',
-            nameEn:   cols[1] || '',
-            lat:      parseFloat(cols[2]),
-            lng:      parseFloat(cols[3]),
-            category: cols[4] || '其他',
-            emoji:    cols[5] || '📍',
-            verse:    cols[6] || '',
-            ref:      cols[7] || '',
+            id:       cols[0] || ('row' + i),
+            nameZh:   cols[1] || '',
+            nameEn:   cols[2] || '',
+            lat:      parseFloat(cols[3]),
+            lng:      parseFloat(cols[4]),
+            category: cols[5] || '其他',
+            emoji:    cols[6] || '📍',
+            verse:    cols[7] || '',
+            ref:      cols[8] || '',
+            period:   cols[9] || '未分類時期',
           }))
-          .filter(p => !isNaN(p.lat) && !isNaN(p.lng)); // 過濾無效座標
-
+          .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
       } catch (error) {
         console.error("資料載入失敗:", error);
         alert("無法從 Google Sheet 載入地圖數據，請檢查發布設定或網絡連線。\n\n錯誤：" + error.message);
@@ -413,42 +476,36 @@
       }
     }
 
-    // ── 主程式初始化 ──────────────────────────────────────────
     loadPlaces().then(places => {
       biblePlaces = places;
 
-      // 移除 Loading 畫面
       const loadingScreen = document.getElementById('loading');
       if (loadingScreen) {
         loadingScreen.style.opacity = '0';
         setTimeout(() => loadingScreen.remove(), 500);
       }
 
-      // ── 動態建立篩選下拉選單（根據 Sheets 實際有的 category）────
-      // 日後在 Sheets 加新類別，下拉選單會自動更新，不用改 HTML
-      const filterSelect = document.getElementById('category-filter');
-      const categories = [...new Set(biblePlaces.map(p => p.category))].sort();
-      categories.forEach(cat => {
+      const periodSelect   = document.getElementById('period-filter');
+      const categorySelect = document.getElementById('category-filter');
+      const countBadge     = document.getElementById('count-badge');
+      const headerSub      = document.getElementById('header-sub');
+      const legendEl        = document.getElementById('legend');
+
+      // 建立「歷史時期」選單
+      const periods = [...new Set(biblePlaces.map(p => p.period))];
+      periods.forEach(period => {
         const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        filterSelect.appendChild(opt);
+        opt.value = period;
+        opt.textContent = period;
+        periodSelect.appendChild(opt);
       });
+      if (periods.includes(DEFAULT_PERIOD)) {
+        periodSelect.value = DEFAULT_PERIOD;
+      }
 
-      // ── 動態建立圖例（Legend）────────────────────────────────
-      const legendEl = document.getElementById('legend');
-      legendEl.innerHTML = '<div class="legend-title">地點類型</div>';
-      categories.forEach(cat => {
-        const color = categoryColors[cat] || '#888';
-        const item = document.createElement('div');
-        item.className = 'legend-item';
-        item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${cat}`;
-        legendEl.appendChild(item);
-      });
-
-      // ── 生成地圖標記 ─────────────────────────────────────────
+      // 建立全部 marker
       biblePlaces.forEach(place => {
-        const color = categoryColors[place.category] || "#888";
+        const color = getCategoryColor(place.category);
         const iconHtml = `
           <div class="marker-icon" style="background:${color};">
             <span class="inner">${place.emoji || '📍'}</span>
@@ -474,7 +531,10 @@
 
         const popupContent = `
           <div class="popup-inner">
-            <div class="popup-category" style="background:${color};">${place.category}</div>
+            <div class="popup-tags">
+              <span class="popup-category" style="background:${color};">${place.category}</span>
+              <span class="popup-period">${place.period}</span>
+            </div>
             <div class="popup-name-zh">${place.nameZh}</div>
             <div class="popup-name-en">${place.nameEn}</div>
             ${verseHtml}
@@ -485,30 +545,87 @@
         markersGroup[place.id] = marker;
       });
 
-      // ── 篩選邏輯 ─────────────────────────────────────────────
-      const countBadge = document.getElementById('count-badge');
+      // 依目前時期重建「地點類型」選單，避免出現 0 個地點的選項
+      function rebuildCategoryOptions(periodValue) {
+        const prevSelected = categorySelect.value;
+        const placesInPeriod = biblePlaces.filter(p =>
+          periodValue === 'all' || p.period === periodValue
+        );
+        const cats = [...new Set(placesInPeriod.map(p => p.category))];
 
-      function updateFilter() {
-        const selected = filterSelect.value;
-        let visible = 0;
+        categorySelect.innerHTML = '<option value="all">全部類型</option>';
+        cats.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          categorySelect.appendChild(opt);
+        });
+        categorySelect.value = cats.includes(prevSelected) ? prevSelected : 'all';
+      }
+
+      function rebuildLegend(visiblePlaces) {
+        const cats = [...new Set(visiblePlaces.map(p => p.category))];
+        legendEl.innerHTML = '<div class="legend-title">地點類型</div>';
+        cats.forEach(cat => {
+          const color = getCategoryColor(cat);
+          const item = document.createElement('div');
+          item.className = 'legend-item';
+          item.innerHTML = `<div class="legend-dot" style="background:${color}"></div>${cat}`;
+          legendEl.appendChild(item);
+        });
+      }
+
+      // 核心：交叉篩選（period AND category）+ 地圖視野聯動
+      function applyFilters({ flyToBounds = false } = {}) {
+        const periodVal   = periodSelect.value;
+        const categoryVal = categorySelect.value;
+        const visiblePlaces = [];
 
         biblePlaces.forEach(place => {
           const marker = markersGroup[place.id];
           if (!marker) return;
-          const show = selected === 'all' || place.category === selected;
+
+          const matchPeriod   = periodVal === 'all' || place.period === periodVal;
+          const matchCategory = categoryVal === 'all' || place.category === categoryVal;
+          const show = matchPeriod && matchCategory;
+
           if (show) {
             if (!map.hasLayer(marker)) marker.addTo(map);
-            visible++;
+            visiblePlaces.push(place);
           } else {
             if (map.hasLayer(marker)) map.removeLayer(marker);
           }
         });
 
-        countBadge.textContent = `${visible} 個地點`;
+        countBadge.textContent = `${visiblePlaces.length} 個地點`;
+        headerSub.textContent = periodVal === 'all' ? '全部時期' : periodVal;
+        rebuildLegend(visiblePlaces);
+
+        if (flyToBounds && visiblePlaces.length > 0) {
+          if (visiblePlaces.length === 1) {
+            const p = visiblePlaces[0];
+            map.setView([p.lat, p.lng], 11, { animate: true });
+          } else {
+            const bounds = L.latLngBounds(visiblePlaces.map(p => [p.lat, p.lng]));
+            map.fitBounds(bounds, { padding: [60, 60], maxZoom: 12, animate: true });
+          }
+        }
       }
 
-      filterSelect.addEventListener('change', updateFilter);
-      updateFilter();
+      // 切換「歷史時期」：重建類型選單 → 套用篩選 → 移動地圖視野
+      periodSelect.addEventListener('change', () => {
+        rebuildCategoryOptions(periodSelect.value);
+        applyFilters({ flyToBounds: true });
+      });
+
+      // 切換「地點類型」：只套用篩選，地圖視野不變
+      categorySelect.addEventListener('change', () => {
+        applyFilters({ flyToBounds: false });
+      });
+
+      // 初始執行
+      rebuildCategoryOptions(periodSelect.value);
+      applyFilters({ flyToBounds: true });
     });
   </script>
 </body>
