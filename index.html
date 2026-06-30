@@ -502,13 +502,15 @@
           const rawType = (cols[2] || '').trim().toUpperCase();
           const type = (rawType === 'LINE' || rawType === 'POLYGON') ? rawType : null;
 
-          // 解析座標字串 → [[lat,lng], [lat,lng], ...]（Leaflet 要 lat 在前）
+          // 解析座標字串 → [[lat,lng], [lat,lng], ...]
+          // Sheets 欄位本身已經係 "lat,lng" 格式（例如 32.70,35.30），
+          // 同 Leaflet 要求嘅順序一致，所以直接 parse 唔使對調
           const latlngs = (cols[5] || '')
             .split(';')
             .map(pair => pair.trim())
             .filter(pair => pair.length > 0)
             .map(pair => {
-              const [lng, lat] = pair.split(',').map(v => parseFloat(v.trim()));
+              const [lat, lng] = pair.split(',').map(v => parseFloat(v.trim()));
               return [lat, lng];
             })
             .filter(([lat, lng]) => !isNaN(lat) && !isNaN(lng));
