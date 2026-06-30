@@ -172,6 +172,7 @@
       line-height: 1;
     }
 
+    /* ── Leaflet Popup（地點 / 路線 / 疆界 共用樣式）─────────────── */
     .leaflet-popup-content-wrapper {
       background: var(--panel-bg) !important;
       border: 1.5px solid var(--gold) !important;
@@ -224,7 +225,8 @@
     }
 
     .popup-category,
-    .popup-period {
+    .popup-period,
+    .popup-shapetype {
       display: inline-block;
       font-size: 0.65rem;
       letter-spacing: 0.04em;
@@ -239,6 +241,10 @@
     .popup-period {
       background: var(--ink) !important;
       opacity: 0.75;
+    }
+
+    .popup-shapetype {
+      background: var(--olive) !important;
     }
 
     .popup-name-zh {
@@ -264,16 +270,18 @@
       opacity: 0.6;
     }
 
-    .popup-verse {
+    .popup-verse,
+    .popup-desc {
       font-size: 0.82rem;
       line-height: 1.7;
       color: var(--ink);
-      font-style: italic;
       opacity: 0.9;
       word-break: normal;
       overflow-wrap: break-word;
       white-space: normal;
     }
+
+    .popup-verse { font-style: italic; }
 
     .popup-ref {
       display: block;
@@ -374,13 +382,19 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // ── Google Sheets CSV 資料來源 ──────────────────────────────
-    const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHDfdnwNZv1giUtwww1W7Pil4VVMoxdDOC5CuKSNHpgFHYIB0IZvoG1QUjaAisVNfkGob48OVy3Qod/pub?output=csv';
+    // ══════════════════════════════════════════════════════════
+    // ── 資料來源：兩個 Google Sheets 分頁的 CSV 發布連結 ─────────
+    // ══════════════════════════════════════════════════════════
+    // 分頁 1：地點（Places）
+    const PLACES_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHDfdnwNZv1giUtwww1W7Pil4VVMoxdDOC5CuKSNHpgFHYIB0IZvoG1QUjaAisVNfkGob48OVy3Qod/pub?output=csv';
+
+    // 分頁 2：路線與疆界（Shapes）── gid=1374989341
+    const SHAPES_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRHDfdnwNZv1giUtwww1W7Pil4VVMoxdDOC5CuKSNHpgFHYIB0IZvoG1QUjaAisVNfkGob48OVy3Qod/pub?gid=1374989341&single=true&output=csv';
 
     // 預設時期（開啟時優先顯示）
     const DEFAULT_PERIOD = '新約耶穌時代';
 
-    // 顏色對應（category → 顏色）
+    // 地點類別顏色對應（category → 顏色）
     const categoryColors = {
       "耶穌出生":       "#8B2020",
       "耶穌童年故鄉":   "#C9922A",
@@ -403,6 +417,7 @@
       return assignedFallback[cat];
     }
 
+    // ── 初始化地圖 ────────────────────────────────────────────
     const map = L.map('map', {
       center: [31.9, 35.3],
       zoom: 8,
@@ -417,8 +432,11 @@
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     let biblePlaces = [];
-    const markersGroup = {};
+    let bibleShapes = [];
+    const markersGroup = {}; // { id: L.marker }
+    const shapesGroup  = {}; // { id: L.polyline | L.polygon }
 
+    // ── 通用 CSV 解析器：正確處理欄位內逗號、換行、雙引號 ─────────
     function parseCSV(text) {
       const rows = [];
       let row = [], field = '', inQuotes = false;
@@ -444,40 +462,94 @@
       return rows;
     }
 
-    // Sheets 欄位順序：A=id, B=nameZh, C=nameEn, D=lat, E=lng,
-    //                  F=category, G=emoji, H=verse, I=ref, J=period
-    async function loadPlaces() {
-      try {
-        const res = await fetch(SHEET_CSV_URL);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
-        const rows = parseCSV(text);
-        const dataRows = rows.slice(1);
+    // ── 抓取單一分頁的 CSV 並轉成 row 陣列（不含表頭）────────────
+    async function fetchCSVRows(url, label) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+      const text = await res.text();
+      const rows = parseCSV(text);
+      return rows.slice(1); // 跳過表頭
+    }
 
-        return dataRows
-          .filter(cols => cols.length >= 5 && cols[3] && cols[4])
-          .map((cols, i) => ({
-            id:       cols[0] || ('row' + i),
-            nameZh:   cols[1] || '',
-            nameEn:   cols[2] || '',
-            lat:      parseFloat(cols[3]),
-            lng:      parseFloat(cols[4]),
-            category: cols[5] || '其他',
-            emoji:    cols[6] || '📍',
-            verse:    cols[7] || '',
-            ref:      cols[8] || '',
-            period:   cols[9] || '未分類時期',
-          }))
-          .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+    // ── 載入「地點」分頁 ──────────────────────────────────────
+    // 欄位順序：A=id, B=nameZh, C=nameEn, D=lat, E=lng,
+    //          F=category, G=emoji, H=verse, I=ref, J=period
+    function parsePlaces(dataRows) {
+      return dataRows
+        .filter(cols => cols.length >= 5 && cols[3] && cols[4])
+        .map((cols, i) => ({
+          id:       cols[0] || ('place' + i),
+          nameZh:   cols[1] || '',
+          nameEn:   cols[2] || '',
+          lat:      parseFloat(cols[3]),
+          lng:      parseFloat(cols[4]),
+          category: cols[5] || '其他',
+          emoji:    cols[6] || '📍',
+          verse:    cols[7] || '',
+          ref:      cols[8] || '',
+          period:   cols[9] || '未分類時期',
+        }))
+        .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+    }
+
+    // ── 載入「Shapes」分頁（路線／疆界）─────────────────────────
+    // 欄位順序：A=id, B=name, C=type, D=period, E=color, F=coordinates, G=description
+    // coordinates 格式："lng,lat;lng,lat;lng,lat"（半角分號分隔每個點）
+    function parseShapes(dataRows) {
+      return dataRows
+        .filter(cols => cols.length >= 6 && cols[2] && cols[5])
+        .map((cols, i) => {
+          const rawType = (cols[2] || '').trim().toUpperCase();
+          const type = (rawType === 'LINE' || rawType === 'POLYGON') ? rawType : null;
+
+          // 解析座標字串 → [[lat,lng], [lat,lng], ...]（Leaflet 要 lat 在前）
+          const latlngs = (cols[5] || '')
+            .split(';')
+            .map(pair => pair.trim())
+            .filter(pair => pair.length > 0)
+            .map(pair => {
+              const [lng, lat] = pair.split(',').map(v => parseFloat(v.trim()));
+              return [lat, lng];
+            })
+            .filter(([lat, lng]) => !isNaN(lat) && !isNaN(lng));
+
+          return {
+            id:          cols[0] || ('shape' + i),
+            name:        cols[1] || '',
+            type:        type,
+            period:      cols[3] || '未分類時期',
+            color:       cols[4] || '#8B2020',
+            latlngs:     latlngs,
+            description: cols[6] || '',
+          };
+        })
+        .filter(s => s.type && s.latlngs.length >= 2); // LINE/POLYGON 至少要 2 點
+    }
+
+    // ── 同時 fetch 兩個分頁（雙分頁資料加載）────────────────────
+    async function loadAllData() {
+      try {
+        const [placeRows, shapeRows] = await Promise.all([
+          fetchCSVRows(PLACES_CSV_URL, '地點分頁'),
+          fetchCSVRows(SHAPES_CSV_URL, 'Shapes 分頁'),
+        ]);
+        return {
+          places: parsePlaces(placeRows),
+          shapes: parseShapes(shapeRows),
+        };
       } catch (error) {
         console.error("資料載入失敗:", error);
         alert("無法從 Google Sheet 載入地圖數據，請檢查發布設定或網絡連線。\n\n錯誤：" + error.message);
-        return [];
+        return { places: [], shapes: [] };
       }
     }
 
-    loadPlaces().then(places => {
+    // ══════════════════════════════════════════════════════════
+    // ── 主程式初始化 ─────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    loadAllData().then(({ places, shapes }) => {
       biblePlaces = places;
+      bibleShapes = shapes;
 
       const loadingScreen = document.getElementById('loading');
       if (loadingScreen) {
@@ -491,8 +563,12 @@
       const headerSub      = document.getElementById('header-sub');
       const legendEl        = document.getElementById('legend');
 
-      // 建立「歷史時期」選單
-      const periods = [...new Set(biblePlaces.map(p => p.period))];
+      // ── 建立「歷史時期」選單（合併地點與圖形兩邊的 period，確保
+      //    就算某個時期只有疆界冇地點，都會出現喺選單入面）────────
+      const periodsFromPlaces = biblePlaces.map(p => p.period);
+      const periodsFromShapes = bibleShapes.map(s => s.period);
+      const periods = [...new Set([...periodsFromPlaces, ...periodsFromShapes])];
+
       periods.forEach(period => {
         const opt = document.createElement('option');
         opt.value = period;
@@ -503,7 +579,7 @@
         periodSelect.value = DEFAULT_PERIOD;
       }
 
-      // 建立全部 marker
+      // ── 建立地點 Marker（一次性建立全部，之後用顯示/隱藏做篩選）──
       biblePlaces.forEach(place => {
         const color = getCategoryColor(place.category);
         const iconHtml = `
@@ -545,7 +621,51 @@
         markersGroup[place.id] = marker;
       });
 
-      // 依目前時期重建「地點類型」選單，避免出現 0 個地點的選項
+      // ── 建立 Shapes：LINE 用 polyline，POLYGON 用半透明 polygon ──
+      bibleShapes.forEach(shape => {
+        let layer;
+
+        if (shape.type === 'LINE') {
+          layer = L.polyline(shape.latlngs, {
+            color: shape.color,
+            weight: 4,
+            opacity: 0.85,
+            dashArray: '8 6', // 虛線：視覺上跟「路線」感覺更貼切，跟地點 marker 區分開
+          });
+        } else if (shape.type === 'POLYGON') {
+          layer = L.polygon(shape.latlngs, {
+            color: shape.color,
+            weight: 2,
+            opacity: 0.8,
+            fillColor: shape.color,
+            fillOpacity: 0.25, // 半透明填滿，符合需求 0.2-0.3 範圍
+          });
+        }
+
+        if (!layer) return;
+
+        const typeLabel = shape.type === 'LINE' ? '路線' : '疆界範圍';
+        const descHtml = shape.description
+          ? `<hr class="popup-divider">
+             <div class="popup-desc">${shape.description}</div>`
+          : '';
+
+        const popupContent = `
+          <div class="popup-inner">
+            <div class="popup-tags">
+              <span class="popup-shapetype">${typeLabel}</span>
+              <span class="popup-period">${shape.period}</span>
+            </div>
+            <div class="popup-name-zh">${shape.name}</div>
+            ${descHtml}
+          </div>`;
+
+        layer.bindPopup(popupContent, { maxWidth: 300 });
+        layer.addTo(map);
+        shapesGroup[shape.id] = layer;
+      });
+
+      // ── 依目前時期重建「地點類型」選單，避免出現 0 個地點的選項 ──
       function rebuildCategoryOptions(periodValue) {
         const prevSelected = categorySelect.value;
         const placesInPeriod = biblePlaces.filter(p =>
@@ -575,12 +695,17 @@
         });
       }
 
-      // 核心：交叉篩選（period AND category）+ 地圖視野聯動
+      // ══════════════════════════════════════════════════════════
+      // ── 核心：交叉篩選（period AND category）+ 時空軸聯動 ────────
+      //    地點同 Shapes 都跟住同一個 period 篩選；category 只影響地點
+      // ══════════════════════════════════════════════════════════
       function applyFilters({ flyToBounds = false } = {}) {
         const periodVal   = periodSelect.value;
         const categoryVal = categorySelect.value;
         const visiblePlaces = [];
+        const allVisibleLatLngs = []; // 用嚟計算 fitBounds 範圍（包含地點 + 圖形）
 
+        // 篩選地點
         biblePlaces.forEach(place => {
           const marker = markersGroup[place.id];
           if (!marker) return;
@@ -592,38 +717,55 @@
           if (show) {
             if (!map.hasLayer(marker)) marker.addTo(map);
             visiblePlaces.push(place);
+            allVisibleLatLngs.push([place.lat, place.lng]);
           } else {
             if (map.hasLayer(marker)) map.removeLayer(marker);
           }
         });
 
-        countBadge.textContent = `${visiblePlaces.length} 個地點`;
+        // 篩選 Shapes（只跟 period 連動，唔受地點類型篩選影響）
+        let visibleShapeCount = 0;
+        bibleShapes.forEach(shape => {
+          const layer = shapesGroup[shape.id];
+          if (!layer) return;
+
+          const show = periodVal === 'all' || shape.period === periodVal;
+
+          if (show) {
+            if (!map.hasLayer(layer)) layer.addTo(map);
+            visibleShapeCount++;
+            allVisibleLatLngs.push(...shape.latlngs);
+          } else {
+            if (map.hasLayer(layer)) map.removeLayer(layer);
+          }
+        });
+
+        countBadge.textContent = `${visiblePlaces.length} 個地點 · ${visibleShapeCount} 個路線/疆界`;
         headerSub.textContent = periodVal === 'all' ? '全部時期' : periodVal;
         rebuildLegend(visiblePlaces);
 
-        if (flyToBounds && visiblePlaces.length > 0) {
-          if (visiblePlaces.length === 1) {
-            const p = visiblePlaces[0];
-            map.setView([p.lat, p.lng], 11, { animate: true });
+        // ── 地圖視野聯動：fitBounds 涵蓋地點 + 路線 + 疆界全部範圍 ──
+        if (flyToBounds && allVisibleLatLngs.length > 0) {
+          if (allVisibleLatLngs.length === 1) {
+            map.setView(allVisibleLatLngs[0], 11, { animate: true });
           } else {
-            const bounds = L.latLngBounds(visiblePlaces.map(p => [p.lat, p.lng]));
+            const bounds = L.latLngBounds(allVisibleLatLngs);
             map.fitBounds(bounds, { padding: [60, 60], maxZoom: 12, animate: true });
           }
         }
       }
 
-      // 切換「歷史時期」：重建類型選單 → 套用篩選 → 移動地圖視野
+      // ── 事件綁定 ─────────────────────────────────────────────
       periodSelect.addEventListener('change', () => {
         rebuildCategoryOptions(periodSelect.value);
         applyFilters({ flyToBounds: true });
       });
 
-      // 切換「地點類型」：只套用篩選，地圖視野不變
       categorySelect.addEventListener('change', () => {
-        applyFilters({ flyToBounds: false });
+        applyFilters({ flyToBounds: false }); // 地點類型唔影響 shapes，地圖視野維持不變
       });
 
-      // 初始執行
+      // ── 初始執行 ─────────────────────────────────────────────
       rebuildCategoryOptions(periodSelect.value);
       applyFilters({ flyToBounds: true });
     });
